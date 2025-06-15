@@ -1,0 +1,181 @@
+# ขั้นตอนการ Config เครือข่าย VLAN
+
+## **ขั้นตอนที่ 1: Config Reyee Router (RG-EG310GH-E)**
+
+### 1.1 เข้าใช้งาน Router
+- เชื่อมต่อ PC เข้า LAN port ของ Router
+- เปิดเว็บเบราว์เซอร์ไปที่ `192.168.1.1` หรือ IP default ของ Reyee
+- Login ด้วย username/password (มักจะเป็น admin/admin)
+
+### 1.2 สร้าง VLAN
+ไปที่ **Network → VLAN** หรือ **Advanced → VLAN**
+```
+VLAN ID: 10, Name: HomeNet
+VLAN ID: 20, Name: OfficeNet  
+VLAN ID: 30, Name: GuestWiFi
+VLAN ID: 40, Name: CCTV
+```
+
+### 1.3 กำหนด IP Range สำหรับแต่ละ VLAN
+ไปที่ **Network → LAN** หรือ **DHCP Settings**
+```
+VLAN 10 (HomeNet): 192.168.10.1/24
+VLAN 20 (OfficeNet): 192.168.20.1/24
+VLAN 30 (GuestWiFi): 192.168.30.1/24
+VLAN 40 (CCTV): 192.168.40.1/24
+```
+
+### 1.4 ตั้งค่า Trunk Port
+- กำหนด Port ที่จะเชื่อมต่อไปยัง Switch เป็น **Trunk Mode**
+- อนุญาต VLAN 10, 20, 30, 40 ผ่าน Trunk Port นี้
+
+---
+
+## **ขั้นตอนที่ 2: Config Reyee Switch (RG-NBS3100-24GT4SFP-P)**
+
+### 2.1 เข้าใช้งาน Switch
+- เชื่อมต่อผ่าน Web Interface หรือ SSH
+- IP Address มักจะได้จาก DHCP ของ Router
+
+### 2.2 สร้าง VLAN บน Switch
+```
+VLAN 10: HomeNet
+VLAN 20: OfficeNet
+VLAN 30: GuestWiFi
+VLAN 40: CCTV
+```
+
+### 2.3 กำหนด Port Assignment
+**Access Ports (อุปกรณ์ปลายทาง):**
+```
+Port 1-4: VLAN 40 (NVR/IP Cameras Home)
+Port 5-8: VLAN 10 (Home Assistant/IoT)
+Port 9-12: VLAN 10 (WiFi APs Home Area)
+```
+
+**Trunk Ports:**
+```
+Port ขึ้นไป Router: Trunk (VLAN 10,20,30,40)
+SFP Port ไป MikroTik: Trunk (VLAN 10,20,30,40)
+```
+
+---
+
+## **ขั้นตอนที่ 3: Config MikroTik RB3011 (Office Router)**
+
+### 3.1 เข้าใช้งาน MikroTik
+- ใช้ WinBox หรือ WebFig ผ่าน IP 192.168.88.1
+- หรือเชื่อมต่อผ่าน MAC Address
+
+### 3.2 สร้าง VLAN Interfaces
+```bash
+# สร้าง VLAN Interface
+/interface vlan
+add interface=ether1 name=vlan10-home vlan-id=10
+add interface=ether1 name=vlan20-office vlan-id=20
+add interface=ether1 name=vlan30-guest vlan-id=30
+add interface=ether1 name=vlan40-cctv vlan-id=40
+```
+
+### 3.3 กำหนด IP Address สำหรับแต่ละ VLAN
+```bash
+/ip address
+add address=192.168.10.254/24 interface=vlan10-home
+add address=192.168.20.254/24 interface=vlan20-office
+add address=192.168.30.254/24 interface=vlan30-guest
+add address=192.168.40.254/24 interface=vlan40-cctv
+```
+
+### 3.4 ตั้งค่า DHCP Relay หรือ DHCP Server
+**Option A: DHCP Relay (ส่งกลับไป Reyee)**
+```bash
+/ip dhcp-relay
+add dhcp-server=192.168.10.1 interface=vlan10-home
+add dhcp-server=192.168.20.1 interface=vlan20-office
+add dhcp-server=192.168.30.1 interface=vlan30-guest
+add dhcp-server=192.168.40.1 interface=vlan40-cctv
+```
+
+**Option B: DHCP Server ใน MikroTik**
+```bash
+/ip pool
+add name=pool-home ranges=192.168.10.100-192.168.10.200
+add name=pool-office ranges=192.168.20.100-192.168.20.200
+
+/ip dhcp-server
+add address-pool=pool-home interface=vlan10-home name=dhcp-home
+add address-pool=pool-office interface=vlan20-office name=dhcp-office
+```
+
+### 3.5 ตั้งค่า Firewall Rules
+```bash
+# อนุญาต HomeNet เข้าถึงทุก VLAN
+/ip firewall filter
+add action=accept chain=forward src-address=192.168.10.0/24
+
+# อนุญาต OfficeNet เข้าถึง HomeNet และ CCTV
+add action=accept chain=forward src-address=192.168.20.0/24 dst-address=192.168.10.0/24
+add action=accept chain=forward src-address=192.168.20.0/24 dst-address=192.168.40.0/24
+
+# บล็อก Guest เข้าถึง Internal Networks
+add action=drop chain=forward src-address=192.168.30.0/24 dst-address=192.168.10.0/24
+add action=drop chain=forward src-address=192.168.30.0/24 dst-address=192.168.20.0/24
+add action=drop chain=forward src-address=192.168.30.0/24 dst-address=192.168.40.0/24
+
+# แยก CCTV (อนุญาตเฉพาะจาก Home/Office)
+add action=drop chain=forward dst-address=192.168.40.0/24 src-address=!192.168.10.0/24,!192.168.20.0/24
+```
+
+---
+
+## **ขั้นตอนที่ 4: Config WiFi Access Points**
+
+### 4.1 Access Points ในบ้าน (Reyee + UniFi)
+**สร้าง SSIDs:**
+```
+SSID: HomeNet → VLAN 10
+SSID: GuestWiFi → VLAN 30
+```
+
+### 4.2 Access Points ในออฟฟิส (UniFi/Reyee)
+**สร้าง SSIDs:**
+```
+SSID: HomeNet → VLAN 10
+SSID: OfficeNet → VLAN 20  
+SSID: GuestWiFi → VLAN 30
+```
+
+### 4.3 ตั้งค่า Client Isolation
+- เปิด **Client Isolation** สำหรับ GuestWiFi SSID
+- ป้องกันไม่ให้อุปกรณ์ Guest เห็นกันและกัน
+
+---
+
+## **ขั้นตอนที่ 5: การทดสอบและ Monitoring**
+
+### 5.1 ทดสอบการเชื่อมต่อ
+```bash
+# ทดสอบจาก HomeNet
+ping 192.168.20.1  # ควรผ่าน
+ping 192.168.40.1  # ควรผ่าน
+
+# ทดสอบจาก GuestWiFi  
+ping 192.168.10.1  # ควรไม่ผ่าน
+ping 8.8.8.8       # ควรผ่าน (Internet)
+```
+
+### 5.2 ตั้งค่า Monitoring
+- เปิด SNMP บน MikroTik สำหรับ monitoring
+- ตั้งค่า Static IP reservations สำหรับอุปกรณ์สำคัญ
+- เปิด WinBox remote access (ถ้าจำเป็น)
+
+---
+
+## **สรุปลำดับการ Config**
+1. **Reyee Router** → สร้าง VLAN และ Trunk
+2. **Reyee Switch** → กำหนด Port assignments  
+3. **MikroTik** → VLAN routing + Firewall rules
+4. **WiFi APs** → สร้าง SSIDs + VLAN mapping
+5. **ทดสอบ** → ตรวจสอบการทำงานและ security
+
+**หมายเหตุ:** ควรทำการ backup config ทุกอุปกรณ์ก่อนเริ่ม config และทดสอบทีละขั้นตอนเพื่อลดโอกาสเกิดปัญหา

@@ -1,0 +1,63 @@
+╔════════════════════════════════════════════════════════════╗
+║                NETWORK STRUCTURE OVERVIEW (Final)         ║
+╚════════════════════════════════════════════════════════════╝
+
+[INTERNET]
+    ↓
+[Router: Reyee RG-EG310GH-E]
+    ├── Main Internet Gateway
+    ├── VLANs Distributed via Trunk:
+    │   ├── VLAN 10: HomeNet (192.168.10.0/24)
+    │   ├── VLAN 20: OfficeNet (192.168.20.0/24)
+    │   ├── VLAN 30: GuestWiFi (192.168.30.0/24)
+    │   └── VLAN 40: CCTV (192.168.40.0/24)
+    ↓
+[Switch: Reyee RG-NBS3100-24GT4SFP-P]
+    ├── Devices:
+    │   ├── NVR / IP Cameras (Home)
+    │   ├── Home Assistant / IoT
+    │   ├── WiFi APs (Reyee + UniFi - Home Area)
+    │   └── SFP Trunk → MikroTik RB3011 (VLAN 10/20/30/40)
+
+[MikroTik RB3011 (Office)]
+    ├── VLAN Gateway & Router
+    ├── Firewall + Inter-VLAN Routing
+    ├── DHCP Relay or Static IP Gateway
+    ├── VLAN Interfaces:
+    │   ├── VLAN 10: 192.168.10.254
+    │   ├── VLAN 20: 192.168.20.254
+    │   ├── VLAN 30: 192.168.30.254
+    │   └── VLAN 40: 192.168.40.254
+    └── Connects to:
+        ├── Office WiFi APs (UniFi/Reyee)
+        ├── Office IP Cameras (PoE Switch)
+        └── Office Printers & Devices
+
+[SSID STRUCTURE]
+    ├── Home Area:
+    │   ├── SSID: HomeNet (VLAN 10)
+    │   └── SSID: GuestWiFi (VLAN 30)
+    └── Office Area:
+        ├── SSID: HomeNet (VLAN 10)
+        ├── SSID: OfficeNet (VLAN 20)
+        └── SSID: GuestWiFi (VLAN 30)
+
+[SECURITY & POLICY]
+    ├── VLAN 10 (HomeNet): Full Access to all VLANs
+    ├── VLAN 20 (OfficeNet): Limited Access to HomeNet + CCTV
+    ├── VLAN 30 (Guest): Blocked from Internal VLANs, Internet Only
+    ├── VLAN 40 (CCTV): Isolated except access from VLAN 10/20
+    └── All VLANs → Internet: Allowed
+
+[MANAGEMENT & MONITORING]
+    ├── VLAN 99 (Mgmt) Optional for Router/Switch/AP
+    ├── WinBox / WebFig on MikroTik
+    ├── DHCP: Centralized or Relay to Reyee
+    └── Monitoring: SNMP / Netwatch / Static Reservations
+
+[NOTES]
+- MikroTik is the main VLAN Firewall + Inter-router
+- Reyee still handles WAN + Upstream NAT
+- Guest WiFi → Strict Isolation w/ Client Isolation
+- CCTV segmented into VLAN 40, Viewable from Home/Office
+- Scalable for future SSID, VLAN, or Fiber uplinks

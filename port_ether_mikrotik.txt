@@ -1,0 +1,133 @@
+# MikroTik RB3011 Port Assignment Plan
+
+## Physical Port Layout & Recommendations
+
+### **High Priority Ports (Gigabit 1000Mbps)**
+
+#### **ether1** - WAN/Trunk Input
+- **Connection**: SFP Trunk from Reyee Switch
+- **Purpose**: รับ VLAN 10/20/30/40 จาก Main Switch
+- **Configuration**: Trunk port (tagged VLANs)
+- **Priority**: สูงสุด - Bandwidth critical
+
+#### **ether2** - Office Network Core
+- **Connection**: Office PoE Switch (24-port)
+- **Purpose**: ป้อน Office devices, IP Cameras, Printers
+- **VLAN**: Tagged VLAN 20, 40
+- **Bandwidth**: สูง (office workstations + cameras)
+
+#### **ether3** - Office WiFi APs (Primary)
+- **Connection**: UniFi/Reyee Office AP (Main)
+- **Purpose**: Office WiFi distribution
+- **VLAN**: Tagged VLAN 10, 20, 30
+- **Bandwidth**: สูง (multi-SSID)
+
+#### **ether4** - Office WiFi APs (Secondary)
+- **Connection**: Additional Office AP
+- **Purpose**: Coverage extension
+- **VLAN**: Tagged VLAN 10, 20, 30
+- **Bandwidth**: ปานกลาง
+
+#### **ether5** - Future Expansion/Server
+- **Connection**: Office Server/NAS
+- **Purpose**: High-bandwidth devices
+- **VLAN**: VLAN 20 (Office) หรือ Management
+- **Reserved**: สำหรับอุปกรณ์ bandwidth สูง
+
+### **Standard Ports (Fast Ethernet 100Mbps)**
+
+#### **ether6** - Office Printer Network
+- **Connection**: Office Printer/Scanner
+- **Purpose**: เครื่องพิมพ์/สแกนเนอร์
+- **VLAN**: VLAN 20 (Office)
+- **Bandwidth**: เพียงพอสำหรับ printer
+
+#### **ether7** - Office IP Phone/VoIP
+- **Connection**: IP Phone system
+- **Purpose**: โทรศัพท์ IP
+- **VLAN**: VLAN 20 หรือ Voice VLAN
+- **Bandwidth**: เพียงพอสำหรับ VoIP
+
+#### **ether8** - Management/Monitoring
+- **Connection**: Monitoring server/PC
+- **Purpose**: Network management
+- **VLAN**: VLAN 99 (Management) หรือ VLAN 20
+- **Bandwidth**: เพียงพอสำหรับ monitoring
+
+#### **ether9** - IoT/Smart Devices
+- **Connection**: Office IoT hub/controller
+- **Purpose**: Smart office devices
+- **VLAN**: VLAN 10 หรือ IoT VLAN
+- **Bandwidth**: ต่ำ
+
+#### **ether10** - Backup/Spare
+- **Connection**: Spare for future use
+- **Purpose**: Emergency connection
+- **VLAN**: Configurable
+- **Status**: Standby
+
+### **SFP+ Port** (10Gbps)
+- **Connection**: Reserved for future fiber uplink
+- **Purpose**: High-speed backbone connection
+- **Status**: Future expansion
+
+## Configuration Summary
+
+### **VLAN Interface Assignment**
+```
+ether1: Trunk (VLAN 10,20,30,40 tagged)
+ether2: Trunk (VLAN 20,40 tagged) - Office Switch
+ether3: Trunk (VLAN 10,20,30 tagged) - Office AP Primary
+ether4: Trunk (VLAN 10,20,30 tagged) - Office AP Secondary
+ether5: Access (VLAN 20) - Server/NAS
+ether6: Access (VLAN 20) - Printer
+ether7: Access (VLAN 20) - IP Phone
+ether8: Access (VLAN 99/20) - Management
+ether9: Access (VLAN 10) - IoT
+ether10: Spare
+```
+
+### **Bandwidth Priority**
+1. **ether1** (Trunk) - Critical
+2. **ether2** (Office Switch) - High
+3. **ether3-4** (WiFi APs) - High
+4. **ether5** (Server) - Medium-High
+5. **ether6-10** (Devices) - Medium-Low
+
+## Best Practices
+
+### **Cable Management**
+- ใช้ Cat6/Cat6a สำหรับ Gigabit ports
+- ใช้ Cat5e ได้สำหรับ Fast Ethernet ports
+- Label cables ตาม VLAN/purpose
+
+### **Redundancy Planning**
+- เตรียม backup port สำหรับ critical connections
+- ether10 เป็น spare port สำหรับ emergency
+
+### **Future Scaling**
+- SFP+ port พร้อมสำหรับ fiber uplink
+- ether5 สามารถปรับเป็น trunk port ได้
+- Gigabit ports สามารถรองรับ LAG/bonding
+
+### **Security Considerations**
+- Disable unused ports
+- Configure port security on access ports
+- VLAN isolation ตาม security policy
+- Monitor port utilization
+
+## Port Priority Matrix
+
+| Port | Speed | Priority | Usage | VLAN Mode |
+|------|-------|----------|-------|-----------|
+| ether1 | 1G | Critical | Trunk Input | Tagged |
+| ether2 | 1G | High | Office Switch | Tagged |
+| ether3 | 1G | High | WiFi AP 1 | Tagged |
+| ether4 | 1G | Medium | WiFi AP 2 | Tagged |
+| ether5 | 1G | Medium | Server/Future | Access |
+| ether6 | 100M | Low | Printer | Access |
+| ether7 | 100M | Low | IP Phone | Access |
+| ether8 | 100M | Low | Management | Access |
+| ether9 | 100M | Low | IoT | Access |
+| ether10 | 100M | Spare | Reserve | - |
+| SFP+ | 10G | Future | Fiber | - |
