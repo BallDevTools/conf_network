@@ -51,28 +51,38 @@ set bridge-vlans vlan-filtering=yes
 
 ---
 
-## **ขั้นตอนที่ 2: Physical Connection**
+## **ขั้นตอนที่ 2: Physical Connection - UniFi AP AC LR**
 
-### 2.1 Hardware Requirements
+### 2.1 Hardware Specifications
 ```
-UniFi AP Requirements:
-- Power: PoE+ (25.5W) หรือ PoE Injector
-- Network: Gigabit Ethernet (รองรับ VLAN tagging)
-- Cable: Cat6/Cat6a สำหรับ Gigabit + PoE
+UniFi AP AC LR:
+- Model: UAP-AC-LR
+- Power: 24V passive PoE (รวม 9W)
+- Speed: Gigabit Ethernet
+- WiFi: 802.11ac Wave 1
+- 2.4GHz: 450 Mbps (3x3 MIMO)
+- 5GHz: 867 Mbps (3x3 MIMO)
+- Range: ประมาณ 183 เมตร (เหมาะสำหรับ 30-50m ของคุณ)
 
-MikroTik ether3:
-- Speed: 1Gbps
-- PoE: ถ้ามี PoE out ใช้ได้ หรือใช้ PoE Injector แยก
+PoE Injector (1 Port):
+- Input: 100-240V AC
+- Output: 24V 1A (24W) passive PoE
+- LAN Port: เชื่อมต่อ MikroTik ether3
+- PoE Port: เชื่อมต่อ UniFi AP AC LR
 ```
 
 ### 2.2 Connection Diagram
 ```
-[MikroTik ether3] ──── [PoE Injector] ──── [UniFi AP]
-       │                    │                  │
-   Gigabit             Power + Data        WiFi SSIDs
-   Tagged                                  - HomeNet (VLAN 10)
-   VLANs 10,20,30                         - OfficeNet (VLAN 20)
-                                          - GuestWiFi (VLAN 30)
+[MikroTik ether3] ──[Cat6 Cable]── [PoE Injector] ──[Cat6 Cable]── [UniFi AP AC LR]
+       │                              │         │                      │
+   Gigabit                        LAN Port   PoE Port            802.11ac WiFi
+   Tagged                         (Data)     (Power+Data)        - HomeNet (VLAN 10)
+   VLANs 10,20,30                                                - OfficeNet (VLAN 20)
+                                                                 - GuestWiFi (VLAN 30)
+
+Cable Requirements:
+- MikroTik ↔ PoE Injector: Cat5e/Cat6 (data only)
+- PoE Injector ↔ AP: Cat5e/Cat6 (power + data, max 100m)
 ```
 
 ---
@@ -85,23 +95,44 @@ MikroTik ether3:
 - ใช้ UniFi Cloud Key Gen2/Gen2+
 - หรือ UDM (UniFi Dream Machine)
 
-**Option B: Software Controller (PC/Server)**
-```bash
-# Download จาก ui.com
-# Windows: UniFi-Network-Application-x.x.x.exe
-# Linux: unifi_sysvinit_all.deb
-# macOS: UniFi.dmg
+### 3.1 Install UniFi Network Application - Software Controller
 
-# หรือ Docker (แนะนำ)
-docker run -d \
-  --name=unifi-controller \
-  -e PUID=1000 \
-  -e PGID=1000 \
-  -p 8080:8080 \
-  -p 8443:8443 \
-  -p 3478:3478/udp \
-  -v /path/to/config:/config \
-  linuxserver/unifi-controller
+**Download & Install:**
+```
+1. ไปที่ ui.com/download/unifi/
+2. Download "UniFi Network Application" สำหรับ Windows
+3. ไฟล์: UniFi-Network-Application-8.x.x-Windows.exe
+4. ติดตั้งตามขั้นตอน (ต้อง Java 11+ - auto install)
+
+Installation Path:
+C:\Users\[username]\Ubiquiti UniFi\
+
+Services ที่จะติดตั้ง:
+- UniFi Network Application
+- MongoDB (database)
+- Java Runtime Environment
+```
+
+**Java Requirements (สำคัญ!):**
+```
+- Java 11 หรือสูงกว่า (auto install ใน version ใหม่)
+- RAM: อย่างน้อย 2GB สำหรับ Controller
+- Storage: 5GB+ available space
+- Network: Controller ต้องอยู่ใน network เดียวกับ AP
+```
+
+**Firewall Ports (Windows Firewall):**
+```
+Required Ports:
+- 8080/tcp: Device communication
+- 8443/tcp: Web interface (HTTPS)
+- 8880/tcp: HTTP redirect  
+- 8843/tcp: Guest portal HTTPS
+- 3478/udp: STUN protocol
+- 10001/udp: AP discovery
+- 1900/udp: "Make controller discoverable on L2 network"
+
+Auto-configure: Controller จะขอเปิด ports อัตโนมัติ
 ```
 
 ### 3.2 Access UniFi Controller
@@ -213,26 +244,29 @@ GuestWiFi (VLAN 30):
 
 ## **ขั้นตอนที่ 6: Advanced UniFi Settings**
 
-### 6.1 Radio Settings
+### 6.1 Radio Settings - Optimized for AC LR (30-50m coverage)
 ```
 Settings → WiFi → Radio Management
 
-2.4GHz:
-├── Channel Width: 20MHz (แนะนำ)
-├── Channel: Auto หรือ 1,6,11
-├── Transmit Power: Auto หรือ Medium
-└── Min RSSI: -70dBm
+2.4GHz (เหมาะสำหรับ IoT devices):
+├── Channel Width: 20MHz (แนะนำสำหรับ stability)
+├── Channel: 1, 6, หรือ 11 (manual select ดีกว่า auto)
+├── Transmit Power: Medium (เพื่อ coverage 30-50m)
+├── Min RSSI: -70dBm (filter weak devices)
+└── Legacy 11b Rate: Disabled (เพิ่ม performance)
 
-5GHz:
-├── Channel Width: 80MHz (หรือ 40MHz ถ้าแออัด)
-├── Channel: Auto หรือ DFS channels
-├── Transmit Power: Auto หรือ Medium  
-└── Min RSSI: -70dBm
+5GHz (เหมาะสำหรับ high-bandwidth devices):
+├── Channel Width: 80MHz (สำหรับ 867 Mbps max)
+├── Channel: 36, 44, 149, 157 (avoid DFS ถ้าไม่จำเป็น)
+├── Transmit Power: High (เพื่อ coverage 50m)
+├── Min RSSI: -65dBm (5GHz มี range สั้นกว่า)
+└── Band Steering: Enable (ผลัก dual-band devices ไป 5GHz)
 
-WiFi 6 (ถ้า AP รองรับ):
-├── Enable WiFi 6: Yes
-├── BSS Coloring: Enable
-└── OFDMA: Enable
+Advanced Settings:
+├── Country: Thailand (TH) - สำคัญสำหรับ legal channels
+├── DTIM Period: 3 (balance power saving vs performance) 
+├── Group Rekey Interval: 3600 seconds
+└── PMF (Protected Management Frames): Optional
 ```
 
 ### 6.2 Traffic & Firewall Rules
@@ -354,23 +388,18 @@ Performance Optimization:
 ## **สรุป Configuration**
 
 ```
-MikroTik ether3 Setup:
-├── Trunk port tagged VLANs 10,20,30
-├── Bridge configuration สำหรับ VLAN switching
-├── PoE power output (ถ้ามี)
-└── Gateway IPs: .254 สำหรับแต่ละ VLAN
-
-UniFi AP Configuration:
+UniFi AP AC LR Configuration:
 ├── 3 SSIDs mapped to VLANs 10,20,30
-├── WPA2/WPA3 security
+├── WPA2 security (AC LR ไม่รองรับ WPA3)
 ├── Guest isolation enabled
-├── Bandwidth limiting สำหรับ Guest
-└── Professional radio optimization
+├── Optimized สำหรับ coverage 30-50m
+└── 2.4GHz + 5GHz dual-band operation
 
 Expected Performance:
-├── WiFi 6: up to 1.2Gbps (5GHz) + 300Mbps (2.4GHz)
-├── Concurrent Clients: 100+ per AP
-├── Coverage: ประมาณ 150-200 ตรม. ต่อ AP
+├── 5GHz: up to 867Mbps (3x3 MIMO)
+├── 2.4GHz: up to 450Mbps (3x3 MIMO)  
+├── Concurrent Clients: 50-75 per AP (realistic)
+├── Coverage: 30-50m radius (perfect for your space)
 └── Latency: <5ms local, <15ms internet
 ```
 
