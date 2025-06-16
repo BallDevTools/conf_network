@@ -1,0 +1,383 @@
+# UniFi AP Setup Guide - MikroTik ether3
+
+## **ขั้นตอนที่ 1: Config MikroTik ether3 สำหรับ UniFi AP**
+
+### 1.1 ตั้งค่า ether3 เป็น Trunk Port
+```bash
+# ตั้งค่า ether3 เป็น trunk port สำหรับ UniFi AP
+/interface ethernet
+set ether3 comment="UniFi AP - Office WiFi Primary - VLANs 10,20,30"
+
+# Optional: ตั้งค่า PoE (ถ้า MikroTik มี PoE)
+# /interface ethernet poe
+# set ether3 poe-out=auto-on
+```
+
+### 1.2 ตรวจสอบ VLAN Configuration
+```bash
+# ตรวจสอบว่า VLAN interfaces ถูกสร้างแล้วบน ether1
+/interface vlan print
+# ควรเห็น vlan10-home, vlan20-office, vlan30-guest, vlan40-cctv
+
+# ตรวจสอบ IP addresses
+/ip address print
+```
+
+### 1.3 Bridge Configuration (สำคัญมาก!)
+```bash
+# สร้าง bridge สำหรับ VLAN switching
+/interface bridge
+add name=bridge-vlans comment="VLAN Bridge for WiFi APs"
+
+# เพิ่ม VLAN interfaces เข้า bridge
+/interface bridge port
+add bridge=bridge-vlans interface=vlan10-home
+add bridge=bridge-vlans interface=vlan20-office  
+add bridge=bridge-vlans interface=vlan30-guest
+
+# เพิ่ม ether3 เข้า bridge (UniFi AP port)
+add bridge=bridge-vlans interface=ether3
+
+# ตั้งค่า VLAN filtering บน bridge
+/interface bridge vlan
+add bridge=bridge-vlans tagged=ether3 vlan-ids=10 comment="HomeNet"
+add bridge=bridge-vlans tagged=ether3 vlan-ids=20 comment="OfficeNet"
+add bridge=bridge-vlans tagged=ether3 vlan-ids=30 comment="GuestWiFi"
+
+# Enable VLAN filtering
+/interface bridge
+set bridge-vlans vlan-filtering=yes
+```
+
+---
+
+## **ขั้นตอนที่ 2: Physical Connection**
+
+### 2.1 Hardware Requirements
+```
+UniFi AP Requirements:
+- Power: PoE+ (25.5W) หรือ PoE Injector
+- Network: Gigabit Ethernet (รองรับ VLAN tagging)
+- Cable: Cat6/Cat6a สำหรับ Gigabit + PoE
+
+MikroTik ether3:
+- Speed: 1Gbps
+- PoE: ถ้ามี PoE out ใช้ได้ หรือใช้ PoE Injector แยก
+```
+
+### 2.2 Connection Diagram
+```
+[MikroTik ether3] ──── [PoE Injector] ──── [UniFi AP]
+       │                    │                  │
+   Gigabit             Power + Data        WiFi SSIDs
+   Tagged                                  - HomeNet (VLAN 10)
+   VLANs 10,20,30                         - OfficeNet (VLAN 20)
+                                          - GuestWiFi (VLAN 30)
+```
+
+---
+
+## **ขั้นตอนที่ 3: UniFi Controller Setup**
+
+### 3.1 Install UniFi Network Application
+
+**Option A: Cloud Key หรือ UDM**
+- ใช้ UniFi Cloud Key Gen2/Gen2+
+- หรือ UDM (UniFi Dream Machine)
+
+**Option B: Software Controller (PC/Server)**
+```bash
+# Download จาก ui.com
+# Windows: UniFi-Network-Application-x.x.x.exe
+# Linux: unifi_sysvinit_all.deb
+# macOS: UniFi.dmg
+
+# หรือ Docker (แนะนำ)
+docker run -d \
+  --name=unifi-controller \
+  -e PUID=1000 \
+  -e PGID=1000 \
+  -p 8080:8080 \
+  -p 8443:8443 \
+  -p 3478:3478/udp \
+  -v /path/to/config:/config \
+  linuxserver/unifi-controller
+```
+
+### 3.2 Access UniFi Controller
+```
+Web Interface: https://controller-ip:8443
+Default: https://192.168.20.xxx:8443 (ถ้าต่อใน Office network)
+
+First Setup:
+1. Create admin account
+2. Set controller name
+3. Enable remote access (optional)
+4. Skip UniFi OS setup (ถ้าไม่ใช่ UDM)
+```
+
+---
+
+## **ขั้นตอนที่ 4: UniFi AP Adoption**
+
+### 4.1 Discovery และ Adoption
+```
+1. เสียบ UniFi AP เข้า ether3
+2. รอ AP boot up (LED กะพริบ white/blue)
+3. AP จะได้ IP จาก DHCP
+4. เปิด UniFi Controller → Devices
+5. ค้นหา AP ใน "Pending Adoption"
+6. คลิก "Adopt" → รอ provisioning
+```
+
+### 4.2 Troubleshooting Adoption
+```bash
+# ถ้า AP ไม่ขึ้นใน Controller
+# SSH เข้า AP (password: ubnt)
+ssh ubnt@192.168.20.xxx
+
+# Set inform URL manually
+set-inform http://192.168.20.xxx:8080/inform
+
+# Reset AP (ถ้าจำเป็น)
+# กดปุ่ม reset ข้าง AP นาน 10 วินาที
+```
+
+---
+
+## **ขั้นตอนที่ 5: WiFi Network Configuration**
+
+### 5.1 สร้าง WiFi Networks (SSIDs)
+```
+Network 1 - HomeNet:
+- Name: HomeNet
+- Security: WPA3/WPA2
+- Password: [กำหนดเอง]
+- VLAN: 10
+- Purpose: ครอบครัว, IoT, Home Assistant
+
+Network 2 - OfficeNet:
+- Name: OfficeNet  
+- Security: WPA3/WPA2
+- Password: [กำหนดเอง]
+- VLAN: 20
+- Purpose: งาน, อุปกรณ์สำนักงาน
+
+Network 3 - GuestWiFi:
+- Name: GuestWiFi
+- Security: WPA2 หรือ Open (hotspot)
+- Password: [กำหนดเอง] หรือ captive portal
+- VLAN: 30
+- Purpose: แขก, isolation จากเครือข่ายภายใน
+```
+
+### 5.2 WiFi Network Settings
+```
+Settings → WiFi → Create New WiFi Network
+
+HomeNet (VLAN 10):
+├── Network Name: HomeNet
+├── Password: [strong password]
+├── Security Protocol: WPA2/WPA3
+├── VLAN: 10
+├── Advanced Options:
+│   ├── Band Steering: Enable
+│   ├── BSS Transition: Enable  
+│   ├── Client Device Isolation: Disable
+│   └── Multicast Enhancement: Enable
+
+OfficeNet (VLAN 20):
+├── Network Name: OfficeNet
+├── Password: [strong password]
+├── Security Protocol: WPA2/WPA3
+├── VLAN: 20
+├── Advanced Options:
+│   ├── Band Steering: Enable
+│   ├── BSS Transition: Enable
+│   ├── Client Device Isolation: Disable
+│   └── Fast Roaming: Enable
+
+GuestWiFi (VLAN 30):
+├── Network Name: GuestWiFi
+├── Password: [simple password] หรือ Hotspot
+├── Security Protocol: WPA2
+├── VLAN: 30
+├── Advanced Options:
+│   ├── Client Device Isolation: Enable (สำคัญ!)
+│   ├── Bandwidth Limiting: Enable (เช่น 50/10 Mbps)
+│   ├── Schedule: เปิด-ปิดตามเวลา
+│   └── Captive Portal: Enable (optional)
+```
+
+---
+
+## **ขั้นตอนที่ 6: Advanced UniFi Settings**
+
+### 6.1 Radio Settings
+```
+Settings → WiFi → Radio Management
+
+2.4GHz:
+├── Channel Width: 20MHz (แนะนำ)
+├── Channel: Auto หรือ 1,6,11
+├── Transmit Power: Auto หรือ Medium
+└── Min RSSI: -70dBm
+
+5GHz:
+├── Channel Width: 80MHz (หรือ 40MHz ถ้าแออัด)
+├── Channel: Auto หรือ DFS channels
+├── Transmit Power: Auto หรือ Medium  
+└── Min RSSI: -70dBm
+
+WiFi 6 (ถ้า AP รองรับ):
+├── Enable WiFi 6: Yes
+├── BSS Coloring: Enable
+└── OFDMA: Enable
+```
+
+### 6.2 Traffic & Firewall Rules
+```
+Settings → Security → Traffic & Firewall Rules
+
+Guest Network Isolation:
+├── Rule Type: LAN IN
+├── Name: Block Guest to Internal
+├── Enable: Yes
+├── Rule Applied: Before Predefined Rules
+├── Action: Drop
+├── Source:
+│   ├── Source Type: Network
+│   └── Network: 192.168.30.0/24 (Guest VLAN)
+├── Destination:
+│   ├── Destination Type: Network  
+│   ├── Networks: 192.168.10.0/24, 192.168.20.0/24
+│   └── Port Group: Any
+
+Internet Access Only:
+├── Rule Type: LAN IN  
+├── Name: Allow Guest Internet
+├── Enable: Yes
+├── Action: Accept
+├── Source: 192.168.30.0/24
+└── Destination: Internet (WAN)
+```
+
+---
+
+## **ขั้นตอนที่ 7: Testing & Monitoring**
+
+### 7.1 Network Testing
+```bash
+# ทดสอบจาก MikroTik
+/ping 192.168.20.xxx interface=vlan20-office
+# (IP ของ UniFi AP)
+
+# ทดสอบจากอุปกรณ์
+# เชื่อมต่อแต่ละ SSID และทดสอบ:
+
+HomeNet (VLAN 10):
+- ping 192.168.20.1 ✓ (ถึง OfficeNet)
+- ping 192.168.40.1 ✓ (ถึง CCTV)
+- ping 8.8.8.8 ✓ (Internet)
+
+OfficeNet (VLAN 20):  
+- ping 192.168.10.1 ✓ (ถึง HomeNet)
+- ping 192.168.40.1 ✓ (ถึง CCTV)
+- ping 192.168.30.1 ✗ (บล็อก Guest)
+
+GuestWiFi (VLAN 30):
+- ping 192.168.10.1 ✗ (บล็อก HomeNet)
+- ping 192.168.20.1 ✗ (บล็อก OfficeNet)  
+- ping 8.8.8.8 ✓ (Internet เท่านั้น)
+```
+
+### 7.2 UniFi Monitoring
+```
+UniFi Controller Dashboard:
+├── Devices → AP Status, Uptime, Load
+├── Insights → WiFi Experience, Satisfaction  
+├── Statistics → Client Count, Bandwidth Usage
+├── Events → Connection/Disconnection logs
+└── Alerts → AP offline, High interference
+
+Key Metrics:
+├── WiFi Experience: >95% (target)
+├── Satisfaction: >95% (target)
+├── AP Load: <70% (per radio)
+├── Channel Utilization: <50%
+└── Interference: <20%
+```
+
+---
+
+## **ขั้นตอนที่ 8: Security Best Practices**
+
+### 8.1 UniFi Security Settings
+```
+Settings → System → Advanced
+
+Secure Management:
+├── SSH: Disable (ใช้ Controller)
+├── SNMP: Enable (ถ้าต้อง monitor)
+├── Analytics & Improvements: Disable
+├── Remote Logging: Enable → Syslog server
+└── NTP Server: Set local NTP
+
+Device Authentication:
+├── Device Password: เปลี่ยนจาก default
+├── SSH Keys: ใช้แทน password
+├── 2FA: Enable สำหรับ Controller
+└── Guest Portal: Enable captive portal
+```
+
+### 8.2 Monitoring & Maintenance
+```
+Regular Tasks:
+├── Update UniFi Controller monthly
+├── Update AP firmware through Controller
+├── Monitor WiFi performance weekly
+├── Check interference และ optimize channels
+├── Review client connection issues
+├── Backup Controller configuration
+└── Test guest network isolation
+
+Performance Optimization:
+├── Adjust transmit power ตาม coverage
+├── Fine-tune channel selection
+├── Monitor bandwidth usage per SSID
+├── Optimize client load balancing
+└── Review and update security settings
+```
+
+---
+
+## **สรุป Configuration**
+
+```
+MikroTik ether3 Setup:
+├── Trunk port tagged VLANs 10,20,30
+├── Bridge configuration สำหรับ VLAN switching
+├── PoE power output (ถ้ามี)
+└── Gateway IPs: .254 สำหรับแต่ละ VLAN
+
+UniFi AP Configuration:
+├── 3 SSIDs mapped to VLANs 10,20,30
+├── WPA2/WPA3 security
+├── Guest isolation enabled
+├── Bandwidth limiting สำหรับ Guest
+└── Professional radio optimization
+
+Expected Performance:
+├── WiFi 6: up to 1.2Gbps (5GHz) + 300Mbps (2.4GHz)
+├── Concurrent Clients: 100+ per AP
+├── Coverage: ประมาณ 150-200 ตรม. ต่อ AP
+└── Latency: <5ms local, <15ms internet
+```
+
+**Next Steps:**
+1. Physical installation และ cable connection
+2. MikroTik bridge configuration
+3. UniFi Controller setup และ AP adoption  
+4. SSID creation และ VLAN mapping
+5. Security rules testing
+6. Performance monitoring และ optimization
