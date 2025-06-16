@@ -1,0 +1,218 @@
+# อัพเดท Network Configuration - เปลี่ยนเป็น Ethernet Connection
+
+## **การเปลี่ยนแปลงหลัก**
+- **เดิม**: SFP connection จาก Reyee Switch → MikroTik
+- **ใหม่**: Ethernet cable ผ่าน **ether1** จาก Reyee Switch → MikroTik
+
+---
+
+## **ขั้นตอนที่ 1: Config Reyee Switch (Updated)**
+
+### 1.1 ตั้งค่า Trunk Port ใหม่
+```
+Port ที่เชื่อมต่อไป MikroTik ether1: 
+- Mode: Trunk
+- Allowed VLANs: 10, 20, 30, 40
+- Native VLAN: ไม่ต้องตั้ง (หรือ VLAN 1)
+```
+
+### 1.2 ตรวจสอบ Port Speed
+- **Reyee Switch port** → **MikroTik ether1**: Auto-negotiate to **1Gbps**
+- ใช้ Cat6/Cat6a cable สำหรับประสิทธิภาพสูงสุด
+
+---
+
+## **ขั้นตอนที่ 2: Config MikroTik RB3011 (Updated)**
+
+### 2.1 ตั้งค่า ether1 เป็น Trunk Port
+```bash
+# ตั้งค่า ether1 เป็น trunk interface
+/interface ethernet
+set ether1 comment="Trunk from Reyee Switch - VLANs 10,20,30,40"
+
+# สร้าง VLAN interfaces บน ether1
+/interface vlan
+add interface=ether1 name=vlan10-home vlan-id=10 comment="HomeNet"
+add interface=ether1 name=vlan20-office vlan-id=20 comment="OfficeNet"
+add interface=ether1 name=vlan30-guest vlan-id=30 comment="GuestWiFi"
+add interface=ether1 name=vlan40-cctv vlan-id=40 comment="CCTV Network"
+```
+
+### 2.2 กำหนด IP Address สำหรับแต่ละ VLAN
+```bash
+/ip address
+add address=192.168.10.254/24 interface=vlan10-home comment="HomeNet Gateway"
+add address=192.168.20.254/24 interface=vlan20-office comment="OfficeNet Gateway"
+add address=192.168.30.254/24 interface=vlan30-guest comment="GuestWiFi Gateway"
+add address=192.168.40.254/24 interface=vlan40-cctv comment="CCTV Gateway"
+```
+
+### 2.3 Updated Port Assignment Plan
+
+#### **Gigabit Ports (1000Mbps)**
+```
+ether1: Trunk Input from Reyee Switch (VLANs 10,20,30,40)
+ether2: Office Switch (PoE) - Tagged VLAN 20,40
+ether3: Office WiFi AP Primary - Tagged VLAN 10,20,30
+ether4: Office WiFi AP Secondary - Tagged VLAN 10,20,30
+ether5: Office Server/NAS - Access VLAN 20
+```
+
+#### **Fast Ethernet Ports (100Mbps)**
+```
+ether6: Office Printer - Access VLAN 20
+ether7: IP Phone/VoIP - Access VLAN 20
+ether8: Management PC - Access VLAN 20/99
+ether9: IoT Devices - Access VLAN 10
+ether10: Spare/Backup
+```
+
+### 2.4 ตั้งค่า DHCP Options
+**Option A: DHCP Relay (แนะนำ)**
+```bash
+/ip dhcp-relay
+add dhcp-server=192.168.10.1 interface=vlan10-home disabled=no
+add dhcp-server=192.168.20.1 interface=vlan20-office disabled=no
+add dhcp-server=192.168.30.1 interface=vlan30-guest disabled=no
+add dhcp-server=192.168.40.1 interface=vlan40-cctv disabled=no
+```
+
+**Option B: Local DHCP (ถ้าต้องการควบคุมใน MikroTik)**
+```bash
+/ip pool
+add name=pool-office ranges=192.168.20.100-192.168.20.200
+add name=pool-guest ranges=192.168.30.100-192.168.30.200
+
+/ip dhcp-server
+add address-pool=pool-office interface=vlan20-office name=dhcp-office
+add address-pool=pool-guest interface=vlan30-guest name=dhcp-guest
+```
+
+---
+
+## **ขั้นตอนที่ 3: Updated Firewall Rules**
+
+### 3.1 Inter-VLAN Routing Rules
+```bash
+# HomeNet (VLAN 10) - Full access to all networks
+/ip firewall filter
+add action=accept chain=forward src-address=192.168.10.0/24 comment="HomeNet Full Access"
+
+# OfficeNet (VLAN 20) - Access to HomeNet and CCTV only
+add action=accept chain=forward src-address=192.168.20.0/24 dst-address=192.168.10.0/24 comment="Office to Home"
+add action=accept chain=forward src-address=192.168.20.0/24 dst-address=192.168.40.0/24 comment="Office to CCTV"
+
+# Block Office from Guest network
+add action=drop chain=forward src-address=192.168.20.0/24 dst-address=192.168.30.0/24 comment="Block Office to Guest"
+
+# Guest Network (VLAN 30) - Internet only, block all internal
+add action=drop chain=forward src-address=192.168.30.0/24 dst-address=192.168.10.0/24 comment="Block Guest to Home"
+add action=drop chain=forward src-address=192.168.30.0/24 dst-address=192.168.20.0/24 comment="Block Guest to Office"
+add action=drop chain=forward src-address=192.168.30.0/24 dst-address=192.168.40.0/24 comment="Block Guest to CCTV"
+
+# CCTV Network (VLAN 40) - Allow access only from Home and Office
+add action=accept chain=forward src-address=192.168.10.0/24 dst-address=192.168.40.0/24 comment="Home to CCTV"
+add action=accept chain=forward src-address=192.168.20.0/24 dst-address=192.168.40.0/24 comment="Office to CCTV"
+add action=drop chain=forward dst-address=192.168.40.0/24 comment="Block others to CCTV"
+
+# Allow all VLANs to Internet
+add action=accept chain=forward out-interface-list=WAN comment="Allow Internet Access"
+```
+
+---
+
+## **ขั้นตอนที่ 4: Cable และ Physical Connection**
+
+### 4.1 Cable Requirements
+```
+Reyee Switch → MikroTik ether1:
+- Cable: Cat6 หรือ Cat6a
+- Length: ตามระยะทางจริง
+- Speed: Auto-negotiate 1000Mbps Full Duplex
+```
+
+### 4.2 ตรวจสอบ Link Status
+```bash
+# ตรวจสอบสถานะ port ether1
+/interface ethernet monitor ether1
+
+# Expected Output:
+# status: link-ok
+# rate: 1Gbps
+# full-duplex: yes
+```
+
+---
+
+## **ขั้นตอนที่ 5: Testing & Verification**
+
+### 5.1 ทดสอบ VLAN Connectivity
+```bash
+# จาก MikroTik - ทดสอบไปยัง Reyee Router
+/ping 192.168.10.1 interface=vlan10-home
+/ping 192.168.20.1 interface=vlan20-office
+/ping 192.168.30.1 interface=vlan30-guest
+/ping 192.168.40.1 interface=vlan40-cctv
+```
+
+### 5.2 ทดสอบจากอุปกรณ์ปลายทาง
+```
+Device บน VLAN 10 (Home):
+- ping 192.168.20.254 ✓ (should work)
+- ping 192.168.40.254 ✓ (should work)
+
+Device บน VLAN 30 (Guest):
+- ping 192.168.10.254 ✗ (should fail)
+- ping 8.8.8.8 ✓ (should work - Internet)
+```
+
+---
+
+## **Network Topology - Updated**
+
+```
+[Internet]
+    ↓
+[Reyee Router RG-EG310GH-E]
+├── VLAN 10: 192.168.10.1/24 (HomeNet)
+├── VLAN 20: 192.168.20.1/24 (OfficeNet)  
+├── VLAN 30: 192.168.30.1/24 (GuestWiFi)
+└── VLAN 40: 192.168.40.1/24 (CCTV)
+    ↓ (Trunk - All VLANs)
+[Reyee Switch RG-NBS3100-24GT4SFP-P]
+├── Home devices (VLAN 10, 40)
+├── Home WiFi APs (VLAN 10, 30)
+└── Ethernet Trunk → MikroTik ether1
+    ↓
+[MikroTik RB3011 - Office]
+├── ether1: Trunk Input (VLAN 10,20,30,40)
+├── ether2-5: Office connections (1Gbps)
+├── ether6-10: Office devices (100Mbps)
+└── VLAN Gateways:
+    ├── 192.168.10.254 (HomeNet)
+    ├── 192.168.20.254 (OfficeNet)
+    ├── 192.168.30.254 (GuestWiFi)
+    └── 192.168.40.254 (CCTV)
+```
+
+---
+
+## **สรุปการเปลี่ยนแปลง**
+
+### **ข้อดี**
+- ใช้ Ethernet cable ธรรมดา (ไม่ต้อง SFP module)
+- ether1 เป็น Gigabit port รองรับ bandwidth สูง
+- ง่ายต่อการ troubleshoot
+- ประหยัดค่าใช้จ่าย
+
+### **ข้อควรระวัง**
+- ether1 จะเป็น single point of failure
+- ระยะทาง cable จำกัดที่ 100 เมตร
+- ตรวจสอบ cable quality สำหรับ Gigabit speed
+
+### **Next Steps**
+1. Update Reyee Switch trunk port configuration
+2. Configure MikroTik ether1 และ VLAN interfaces
+3. Test connectivity ทีละ VLAN
+4. Apply firewall rules และทดสอบ security
+5. Monitor performance และ adjust ตามความจำเป็น
