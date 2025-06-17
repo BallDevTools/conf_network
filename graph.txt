@@ -1,0 +1,77 @@
+graph TD
+    Internet([Internet]) --> ReyeeRouter[Reyee Router RG-EG310GH-E<br/>Main Gateway & NAT]
+    
+    ReyeeRouter --> VLAN10[VLAN 10: HomeNet<br/>192.168.10.0/24]
+    ReyeeRouter --> VLAN20[VLAN 20: OfficeNet<br/>192.168.20.0/24]
+    ReyeeRouter --> VLAN30[VLAN 30: GuestWiFi<br/>192.168.30.0/24]
+    ReyeeRouter --> VLAN40[VLAN 40: CCTV<br/>192.168.40.0/24]
+    
+    ReyeeRouter -->|Trunk All VLANs| ReyeeSwitch[Reyee Switch<br/>RG-NBS3100-24GT4SFP-P]
+    
+    ReyeeSwitch --> HomeDevices[Home Area Devices]
+    HomeDevices --> NVR[NVR/IP Cameras<br/>VLAN 40]
+    HomeDevices --> HA[Home Assistant/IoT<br/>VLAN 10]
+    HomeDevices --> HomeAP[Home WiFi APs<br/>VLANs 10,30]
+    
+    ReyeeSwitch -->|Ethernet Trunk<br/>ether1| MikroTik[MikroTik RB3011<br/>Office Router & Firewall]
+    
+    MikroTik --> VLANGateways[VLAN Gateways]
+    VLANGateways --> GW10[192.168.10.254<br/>HomeNet Gateway]
+    VLANGateways --> GW20[192.168.20.254<br/>OfficeNet Gateway]
+    VLANGateways --> GW30[192.168.30.254<br/>GuestWiFi Gateway]
+    VLANGateways --> GW40[192.168.40.254<br/>CCTV Gateway]
+    
+    MikroTik -->|ether2| OfficeSwitch[Office PoE Switch<br/>VLANs 20,40]
+    MikroTik -->|ether3| UniFiAP[UniFi AP AC LR<br/>Office WiFi Primary<br/>VLANs 10,20,30]
+    MikroTik -->|ether4| OfficeAP2[UniFi/Reyee AP Secondary<br/>Office WiFi Coverage Extension<br/>VLANs 10,20,30]
+    MikroTik -->|ether5| OfficeServer[Office Server/NAS<br/>VLAN 20]
+    MikroTik -->|ether6-10| OfficeDevices[Office Devices<br/>Printers, Phones, IoT]
+    
+    OfficeSwitch --> OfficeCCTV[Office IP Cameras<br/>VLAN 40]
+    OfficeSwitch --> OfficePrinters[Office Equipment<br/>VLAN 20]
+    
+    UniFiAP --> SSID1[SSID: HomeNet<br/>VLAN 10]
+    UniFiAP --> SSID2[SSID: OfficeNet<br/>VLAN 20]
+    UniFiAP --> SSID3[SSID: GuestWiFi<br/>VLAN 30]
+    
+    OfficeAP2 --> SSID4[SSID: HomeNet<br/>VLAN 10]
+    OfficeAP2 --> SSID5[SSID: OfficeNet<br/>VLAN 20]
+    OfficeAP2 --> SSID6[SSID: GuestWiFi<br/>VLAN 30]
+    
+    HomeAP --> HomeSSID1[SSID: HomeNet<br/>VLAN 10]
+    HomeAP --> HomeSSID2[SSID: GuestWiFi<br/>VLAN 30]
+    
+    SSID1 -->|Full Access| AllNetworks[Access to All VLANs<br/>+ Internet]
+    SSID2 -->|Limited Access| LimitedAccess[HomeNet + CCTV<br/>+ Internet]
+    SSID3 -->|Restricted| InternetOnly[Internet Only<br/>Blocked from Internal]
+    
+    AllNetworks --> SecurityRules[Firewall Rules on MikroTik]
+    LimitedAccess --> SecurityRules
+    InternetOnly --> SecurityRules
+    
+    SecurityRules --> Allow1[✓ HomeNet → All VLANs]
+    SecurityRules --> Allow2[✓ OfficeNet → HomeNet, CCTV]
+    SecurityRules --> Block1[✗ Guest → Internal VLANs]
+    SecurityRules --> Block2[✗ CCTV ← Guest/Unauthorized]
+    
+    classDef router fill:#E74C3C,stroke:#FFFFFF,stroke-width:3px,color:#FFFFFF,font-weight:bold,font-size:14px
+    classDef switch fill:#3498DB,stroke:#FFFFFF,stroke-width:3px,color:#FFFFFF,font-weight:bold,font-size:14px
+    classDef vlan fill:#27AE60,stroke:#FFFFFF,stroke-width:3px,color:#FFFFFF,font-weight:bold,font-size:13px
+    classDef device fill:#F39C12,stroke:#FFFFFF,stroke-width:2px,color:#FFFFFF,font-weight:bold,font-size:12px
+    classDef security fill:#9B59B6,stroke:#FFFFFF,stroke-width:3px,color:#FFFFFF,font-weight:bold,font-size:12px
+    classDef ssid fill:#1ABC9C,stroke:#FFFFFF,stroke-width:2px,color:#FFFFFF,font-weight:bold,font-size:12px
+    classDef internet fill:#34495E,stroke:#FFFFFF,stroke-width:4px,color:#FFFFFF,font-weight:bold,font-size:16px
+    classDef gateway fill:#16A085,stroke:#FFFFFF,stroke-width:2px,color:#FFFFFF,font-weight:bold,font-size:11px
+    classDef allow fill:#2ECC71,stroke:#FFFFFF,stroke-width:2px,color:#FFFFFF,font-weight:bold,font-size:11px
+    classDef block fill:#E67E22,stroke:#FFFFFF,stroke-width:2px,color:#FFFFFF,font-weight:bold,font-size:11px
+    
+    class Internet internet
+    class ReyeeRouter,MikroTik router
+    class ReyeeSwitch,OfficeSwitch switch
+    class VLAN10,VLAN20,VLAN30,VLAN40 vlan
+    class GW10,GW20,GW30,GW40,VLANGateways gateway
+    class HomeDevices,OfficeDevices,NVR,HA,OfficeServer,OfficeCCTV,OfficePrinters device
+    class SecurityRules security
+    class Allow1,Allow2 allow
+    class Block1,Block2 block
+    class SSID1,SSID2,SSID3,SSID4,SSID5,SSID6,HomeSSID1,HomeSSID2,AllNetworks,LimitedAccess,InternetOnly ssid
