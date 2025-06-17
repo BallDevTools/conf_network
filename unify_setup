@@ -1,412 +1,304 @@
-# UniFi AP Setup Guide - MikroTik ether3
+# MikroTik AP Configuration for Office WiFi
+# ใช้กับ MikroTik ที่มี WiFi module เช่น hAP ac2/ac3, RB4011, wAP series
 
-## **ขั้นตอนที่ 1: Config MikroTik ether3 สำหรับ UniFi AP**
+###########################################
+# 1. WIRELESS INTERFACE SETUP
+###########################################
 
-### 1.1 ตั้งค่า ether3 เป็น Trunk Port
-```bash
-# ตั้งค่า ether3 เป็น trunk port สำหรับ UniFi AP
-/interface ethernet
-set ether3 comment="UniFi AP - Office WiFi Primary - VLANs 10,20,30"
+# Reset wireless configuration
+/interface wireless
+reset-configuration
 
-# Optional: ตั้งค่า PoE (ถ้า MikroTik มี PoE)
-# /interface ethernet poe
-# set ether3 poe-out=auto-on
-```
+# Configure 2.4GHz Radio (wlan1)
+/interface wireless
+set wlan1 disabled=no \
+    mode=ap-bridge \
+    ssid="OfficeNet-2G" \
+    frequency=2442 \
+    channel-width=20mhz \
+    band=2ghz-b/g/n \
+    wireless-protocol=802.11 \
+    security-profile=office-security \
+    bridge-mode=enabled \
+    wds-mode=disabled \
+    country=thailand
 
-### 1.2 ตรวจสอบ VLAN Configuration
-```bash
-# ตรวจสอบว่า VLAN interfaces ถูกสร้างแล้วบน ether1
-/interface vlan print
-# ควรเห็น vlan10-home, vlan20-office, vlan30-guest, vlan40-cctv
+# Configure 5GHz Radio (wlan2) - ถ้ามี dual-band
+/interface wireless
+set wlan2 disabled=no \
+    mode=ap-bridge \
+    ssid="OfficeNet-5G" \
+    frequency=5180 \
+    channel-width=20/40/80mhz-ceee \
+    band=5ghz-a/n/ac \
+    wireless-protocol=802.11 \
+    security-profile=office-security \
+    bridge-mode=enabled \
+    wds-mode=disabled \
+    country=thailand
+
+###########################################
+# 2. WIRELESS SECURITY PROFILES
+###########################################
+
+# Security Profile for Office Network (WPA2)
+/interface wireless security-profiles
+add name=office-security \
+    mode=dynamic-keys \
+    authentication-types=wpa2-psk \
+    wpa2-pre-shared-key="YourOfficeWiFiPassword123!" \
+    group-ciphers=aes-ccm \
+    unicast-ciphers=aes-ccm \
+    wps-mode=disabled
+
+# Security Profile for Guest Network (Open หรือ WPA2 ง่ายๆ)
+/interface wireless security-profiles
+add name=guest-security \
+    mode=dynamic-keys \
+    authentication-types=wpa2-psk \
+    wpa2-pre-shared-key="GuestWiFi2024" \
+    group-ciphers=aes-ccm \
+    unicast-ciphers=aes-ccm \
+    wps-mode=disabled
+
+# Security Profile for Home Network
+/interface wireless security-profiles
+add name=home-security \
+    mode=dynamic-keys \
+    authentication-types=wpa2-psk \
+    wpa2-pre-shared-key="YourHomeWiFiPassword123!" \
+    group-ciphers=aes-ccm \
+    unicast-ciphers=aes-ccm \
+    wps-mode=disabled
+
+###########################################
+# 3. VIRTUAL ACCESS POINTS (Multiple SSIDs)
+###########################################
+
+# Virtual AP for HomeNet (VLAN 10) - 2.4GHz
+/interface wireless
+add name=wlan1-home \
+    master-interface=wlan1 \
+    ssid="HomeNet" \
+    security-profile=home-security \
+    wds-mode=disabled \
+    disabled=no
+
+# Virtual AP for GuestWiFi (VLAN 30) - 2.4GHz
+/interface wireless
+add name=wlan1-guest \
+    master-interface=wlan1 \
+    ssid="GuestWiFi" \
+    security-profile=guest-security \
+    wds-mode=disabled \
+    disabled=no
+
+# Virtual AP for HomeNet (VLAN 10) - 5GHz
+/interface wireless
+add name=wlan2-home \
+    master-interface=wlan2 \
+    ssid="HomeNet" \
+    security-profile=home-security \
+    wds-mode=disabled \
+    disabled=no
+
+# Virtual AP for GuestWiFi (VLAN 30) - 5GHz
+/interface wireless
+add name=wlan2-guest \
+    master-interface=wlan2 \
+    ssid="GuestWiFi" \
+    security-profile=guest-security \
+    wds-mode=disabled \
+    disabled=no
+
+###########################################
+# 4. BRIDGE CONFIGURATION FOR VLANs
+###########################################
+
+# สร้าง Bridge สำหรับ VLAN switching
+/interface bridge
+add name=bridge-vlans vlan-filtering=yes comment="VLAN Bridge for WiFi"
+
+# เพิ่ม wired interfaces เข้า bridge
+/interface bridge port
+add bridge=bridge-vlans interface=ether1 comment="Trunk from main network"
+
+# เพิ่ม wireless interfaces เข้า bridge
+/interface bridge port
+add bridge=bridge-vlans interface=wlan1 comment="OfficeNet 2.4GHz"
+add bridge=bridge-vlans interface=wlan2 comment="OfficeNet 5GHz"
+add bridge=bridge-vlans interface=wlan1-home comment="HomeNet 2.4GHz"
+add bridge=bridge-vlans interface=wlan2-home comment="HomeNet 5GHz"
+add bridge=bridge-vlans interface=wlan1-guest comment="GuestWiFi 2.4GHz"
+add bridge=bridge-vlans interface=wlan2-guest comment="GuestWiFi 5GHz"
+
+###########################################
+# 5. VLAN CONFIGURATION
+###########################################
+
+# Configure Bridge VLANs
+/interface bridge vlan
+add bridge=bridge-vlans tagged=ether1 untagged=wlan1,wlan2 vlan-ids=20 comment="OfficeNet"
+add bridge=bridge-vlans tagged=ether1 untagged=wlan1-home,wlan2-home vlan-ids=10 comment="HomeNet"
+add bridge=bridge-vlans tagged=ether1 untagged=wlan1-guest,wlan2-guest vlan-ids=30 comment="GuestWiFi"
+
+# สร้าง VLAN interfaces สำหรับ management
+/interface vlan
+add interface=bridge-vlans name=vlan10-home vlan-id=10 comment="HomeNet VLAN"
+add interface=bridge-vlans name=vlan20-office vlan-id=20 comment="OfficeNet VLAN"
+add interface=bridge-vlans name=vlan30-guest vlan-id=30 comment="GuestWiFi VLAN"
+
+###########################################
+# 6. IP CONFIGURATION (ถ้าต้องการให้ MikroTik เป็น Gateway)
+###########################################
+
+# กำหนด IP addresses สำหรับแต่ละ VLAN
+/ip address
+add address=192.168.10.254/24 interface=vlan10-home comment="HomeNet Gateway"
+add address=192.168.20.254/24 interface=vlan20-office comment="OfficeNet Gateway"
+add address=192.168.30.254/24 interface=vlan30-guest comment="GuestWiFi Gateway"
+
+###########################################
+# 7. DHCP SERVER CONFIGURATION
+###########################################
+
+# DHCP Pool สำหรับ OfficeNet
+/ip pool
+add name=pool-office ranges=192.168.20.100-192.168.20.200 comment="Office DHCP Pool"
+
+# DHCP Pool สำหรับ GuestWiFi
+/ip pool
+add name=pool-guest ranges=192.168.30.100-192.168.30.200 comment="Guest DHCP Pool"
+
+# DHCP Server สำหรับ OfficeNet
+/ip dhcp-server
+add address-pool=pool-office interface=vlan20-office name=dhcp-office disabled=no
+
+# DHCP Server สำหรับ GuestWiFi
+/ip dhcp-server
+add address-pool=pool-guest interface=vlan30-guest name=dhcp-guest disabled=no
+
+# DHCP Network Configuration
+/ip dhcp-server network
+add address=192.168.20.0/24 gateway=192.168.20.254 dns-server=8.8.8.8,1.1.1.1 comment="Office Network"
+add address=192.168.30.0/24 gateway=192.168.30.254 dns-server=8.8.8.8,1.1.1.1 comment="Guest Network"
+
+###########################################
+# 8. WIRELESS OPTIMIZATION SETTINGS
+###########################################
+
+# Advanced wireless settings for better performance
+/interface wireless
+set wlan1 \
+    tx-power=17 \
+    tx-power-mode=all-rates-fixed \
+    adaptive-noise-immunity=ap-and-client-mode \
+    frame-lifetime=0 \
+    max-station-count=50 \
+    multicast-helper=full \
+    wmm-support=enabled
+
+set wlan2 \
+    tx-power=17 \
+    tx-power-mode=all-rates-fixed \
+    adaptive-noise-immunity=ap-and-client-mode \
+    frame-lifetime=0 \
+    max-station-count=50 \
+    multicast-helper=full \
+    wmm-support=enabled
+
+# การตั้งค่า Access List (ถ้าต้องการจำกัด MAC addresses)
+# /interface wireless access-list
+# add interface=wlan1 mac-address=xx:xx:xx:xx:xx:xx signal-range=-120..-70 comment="Allow strong signals only"
+
+###########################################
+# 9. BASIC FIREWALL FOR WIFI (Optional)
+###########################################
+
+# อนุญาต established/related connections
+/ip firewall filter
+add action=accept chain=input connection-state=established,related comment="Accept established/related"
+
+# อนุญาต ICMP
+/ip firewall filter
+add action=accept chain=input protocol=icmp comment="Accept ICMP"
+
+# อนุญาต access จาก LAN networks
+/ip firewall filter
+add action=accept chain=input src-address=192.168.10.0/24 comment="Accept from HomeNet"
+add action=accept chain=input src-address=192.168.20.0/24 comment="Accept from OfficeNet"
+
+# บล็อก Guest network เข้าถึง router
+/ip firewall filter
+add action=drop chain=input src-address=192.168.30.0/24 comment="Block Guest from router access"
+
+# Drop all other input
+/ip firewall filter
+add action=drop chain=input comment="Drop all other input"
+
+###########################################
+# 10. SYSTEM SETTINGS
+###########################################
+
+# ตั้งชื่อ router
+/system identity
+set name="MikroTik-Office-AP"
+
+# ตั้ง timezone
+/system clock
+set time-zone-name=Asia/Bangkok
+
+# NTP Client
+/system ntp client
+set enabled=yes primary-ntp=pool.ntp.org secondary-ntp=time.cloudflare.com
+
+# SNMP (สำหรับ monitoring)
+/snmp
+set enabled=yes contact="IT Admin" location="Office Building"
+
+###########################################
+# 11. BACKUP CONFIGURATION
+###########################################
+
+# สร้าง backup script
+/system script
+add name=backup-config \
+    source={
+        :local backupname ("backup-" . [/system clock get date] . ".backup");
+        /system backup save name=$backupname;
+        :log info "Backup created: $backupname";
+    }
+
+# รัน backup ทุกวัน
+/system scheduler
+add name=daily-backup interval=1d on-event=backup-config start-time=03:00:00
+
+###########################################
+# VERIFICATION COMMANDS
+###########################################
+
+# ตรวจสอบ wireless interfaces
+# /interface wireless print
+
+# ตรวจสอบ wireless clients
+# /interface wireless registration-table print
+
+# ตรวจสอบ bridge configuration
+# /interface bridge print
+# /interface bridge port print
+# /interface bridge vlan print
+
+# ตรวจสอบ VLAN interfaces
+# /interface vlan print
 
 # ตรวจสอบ IP addresses
-/ip address print
-```
+# /ip address print
 
-### 1.3 Bridge Configuration (สำคัญมาก!)
-```bash
-# สร้าง bridge สำหรับ VLAN switching
-/interface bridge
-add name=bridge-vlans comment="VLAN Bridge for WiFi APs"
+# ตรวจสอบ DHCP leases
+# /ip dhcp-server lease print
 
-# เพิ่ม VLAN interfaces เข้า bridge
-/interface bridge port
-add bridge=bridge-vlans interface=vlan10-home
-add bridge=bridge-vlans interface=vlan20-office  
-add bridge=bridge-vlans interface=vlan30-guest
+# Monitor wireless signal
+# /interface wireless monitor wlan1
 
-# เพิ่ม ether3 เข้า bridge (UniFi AP port)
-add bridge=bridge-vlans interface=ether3
-
-# ตั้งค่า VLAN filtering บน bridge
-/interface bridge vlan
-add bridge=bridge-vlans tagged=ether3 vlan-ids=10 comment="HomeNet"
-add bridge=bridge-vlans tagged=ether3 vlan-ids=20 comment="OfficeNet"
-add bridge=bridge-vlans tagged=ether3 vlan-ids=30 comment="GuestWiFi"
-
-# Enable VLAN filtering
-/interface bridge
-set bridge-vlans vlan-filtering=yes
-```
-
----
-
-## **ขั้นตอนที่ 2: Physical Connection - UniFi AP AC LR**
-
-### 2.1 Hardware Specifications
-```
-UniFi AP AC LR:
-- Model: UAP-AC-LR
-- Power: 24V passive PoE (รวม 9W)
-- Speed: Gigabit Ethernet
-- WiFi: 802.11ac Wave 1
-- 2.4GHz: 450 Mbps (3x3 MIMO)
-- 5GHz: 867 Mbps (3x3 MIMO)
-- Range: ประมาณ 183 เมตร (เหมาะสำหรับ 30-50m ของคุณ)
-
-PoE Injector (1 Port):
-- Input: 100-240V AC
-- Output: 24V 1A (24W) passive PoE
-- LAN Port: เชื่อมต่อ MikroTik ether3
-- PoE Port: เชื่อมต่อ UniFi AP AC LR
-```
-
-### 2.2 Connection Diagram
-```
-[MikroTik ether3] ──[Cat6 Cable]── [PoE Injector] ──[Cat6 Cable]── [UniFi AP AC LR]
-       │                              │         │                      │
-   Gigabit                        LAN Port   PoE Port            802.11ac WiFi
-   Tagged                         (Data)     (Power+Data)        - HomeNet (VLAN 10)
-   VLANs 10,20,30                                                - OfficeNet (VLAN 20)
-                                                                 - GuestWiFi (VLAN 30)
-
-Cable Requirements:
-- MikroTik ↔ PoE Injector: Cat5e/Cat6 (data only)
-- PoE Injector ↔ AP: Cat5e/Cat6 (power + data, max 100m)
-```
-
----
-
-## **ขั้นตอนที่ 3: UniFi Controller Setup**
-
-### 3.1 Install UniFi Network Application
-
-**Option A: Cloud Key หรือ UDM**
-- ใช้ UniFi Cloud Key Gen2/Gen2+
-- หรือ UDM (UniFi Dream Machine)
-
-### 3.1 Install UniFi Network Application - Software Controller
-
-**Download & Install:**
-```
-1. ไปที่ ui.com/download/unifi/
-2. Download "UniFi Network Application" สำหรับ Windows
-3. ไฟล์: UniFi-Network-Application-8.x.x-Windows.exe
-4. ติดตั้งตามขั้นตอน (ต้อง Java 11+ - auto install)
-
-Installation Path:
-C:\Users\[username]\Ubiquiti UniFi\
-
-Services ที่จะติดตั้ง:
-- UniFi Network Application
-- MongoDB (database)
-- Java Runtime Environment
-```
-
-**Java Requirements (สำคัญ!):**
-```
-- Java 11 หรือสูงกว่า (auto install ใน version ใหม่)
-- RAM: อย่างน้อย 2GB สำหรับ Controller
-- Storage: 5GB+ available space
-- Network: Controller ต้องอยู่ใน network เดียวกับ AP
-```
-
-**Firewall Ports (Windows Firewall):**
-```
-Required Ports:
-- 8080/tcp: Device communication
-- 8443/tcp: Web interface (HTTPS)
-- 8880/tcp: HTTP redirect  
-- 8843/tcp: Guest portal HTTPS
-- 3478/udp: STUN protocol
-- 10001/udp: AP discovery
-- 1900/udp: "Make controller discoverable on L2 network"
-
-Auto-configure: Controller จะขอเปิด ports อัตโนมัติ
-```
-
-### 3.2 Access UniFi Controller
-```
-Web Interface: https://controller-ip:8443
-Default: https://192.168.20.xxx:8443 (ถ้าต่อใน Office network)
-
-First Setup:
-1. Create admin account
-2. Set controller name
-3. Enable remote access (optional)
-4. Skip UniFi OS setup (ถ้าไม่ใช่ UDM)
-```
-
----
-
-## **ขั้นตอนที่ 4: UniFi AP Adoption**
-
-### 4.1 Discovery และ Adoption
-```
-1. เสียบ UniFi AP เข้า ether3
-2. รอ AP boot up (LED กะพริบ white/blue)
-3. AP จะได้ IP จาก DHCP
-4. เปิด UniFi Controller → Devices
-5. ค้นหา AP ใน "Pending Adoption"
-6. คลิก "Adopt" → รอ provisioning
-```
-
-### 4.2 Troubleshooting Adoption
-```bash
-# ถ้า AP ไม่ขึ้นใน Controller
-# SSH เข้า AP (password: ubnt)
-ssh ubnt@192.168.20.xxx
-
-# Set inform URL manually
-set-inform http://192.168.20.xxx:8080/inform
-
-# Reset AP (ถ้าจำเป็น)
-# กดปุ่ม reset ข้าง AP นาน 10 วินาที
-```
-
----
-
-## **ขั้นตอนที่ 5: WiFi Network Configuration**
-
-### 5.1 สร้าง WiFi Networks (SSIDs)
-```
-Network 1 - HomeNet:
-- Name: HomeNet
-- Security: WPA3/WPA2
-- Password: [กำหนดเอง]
-- VLAN: 10
-- Purpose: ครอบครัว, IoT, Home Assistant
-
-Network 2 - OfficeNet:
-- Name: OfficeNet  
-- Security: WPA3/WPA2
-- Password: [กำหนดเอง]
-- VLAN: 20
-- Purpose: งาน, อุปกรณ์สำนักงาน
-
-Network 3 - GuestWiFi:
-- Name: GuestWiFi
-- Security: WPA2 หรือ Open (hotspot)
-- Password: [กำหนดเอง] หรือ captive portal
-- VLAN: 30
-- Purpose: แขก, isolation จากเครือข่ายภายใน
-```
-
-### 5.2 WiFi Network Settings
-```
-Settings → WiFi → Create New WiFi Network
-
-HomeNet (VLAN 10):
-├── Network Name: HomeNet
-├── Password: [strong password]
-├── Security Protocol: WPA2/WPA3
-├── VLAN: 10
-├── Advanced Options:
-│   ├── Band Steering: Enable
-│   ├── BSS Transition: Enable  
-│   ├── Client Device Isolation: Disable
-│   └── Multicast Enhancement: Enable
-
-OfficeNet (VLAN 20):
-├── Network Name: OfficeNet
-├── Password: [strong password]
-├── Security Protocol: WPA2/WPA3
-├── VLAN: 20
-├── Advanced Options:
-│   ├── Band Steering: Enable
-│   ├── BSS Transition: Enable
-│   ├── Client Device Isolation: Disable
-│   └── Fast Roaming: Enable
-
-GuestWiFi (VLAN 30):
-├── Network Name: GuestWiFi
-├── Password: [simple password] หรือ Hotspot
-├── Security Protocol: WPA2
-├── VLAN: 30
-├── Advanced Options:
-│   ├── Client Device Isolation: Enable (สำคัญ!)
-│   ├── Bandwidth Limiting: Enable (เช่น 50/10 Mbps)
-│   ├── Schedule: เปิด-ปิดตามเวลา
-│   └── Captive Portal: Enable (optional)
-```
-
----
-
-## **ขั้นตอนที่ 6: Advanced UniFi Settings**
-
-### 6.1 Radio Settings - Optimized for AC LR (30-50m coverage)
-```
-Settings → WiFi → Radio Management
-
-2.4GHz (เหมาะสำหรับ IoT devices):
-├── Channel Width: 20MHz (แนะนำสำหรับ stability)
-├── Channel: 1, 6, หรือ 11 (manual select ดีกว่า auto)
-├── Transmit Power: Medium (เพื่อ coverage 30-50m)
-├── Min RSSI: -70dBm (filter weak devices)
-└── Legacy 11b Rate: Disabled (เพิ่ม performance)
-
-5GHz (เหมาะสำหรับ high-bandwidth devices):
-├── Channel Width: 80MHz (สำหรับ 867 Mbps max)
-├── Channel: 36, 44, 149, 157 (avoid DFS ถ้าไม่จำเป็น)
-├── Transmit Power: High (เพื่อ coverage 50m)
-├── Min RSSI: -65dBm (5GHz มี range สั้นกว่า)
-└── Band Steering: Enable (ผลัก dual-band devices ไป 5GHz)
-
-Advanced Settings:
-├── Country: Thailand (TH) - สำคัญสำหรับ legal channels
-├── DTIM Period: 3 (balance power saving vs performance) 
-├── Group Rekey Interval: 3600 seconds
-└── PMF (Protected Management Frames): Optional
-```
-
-### 6.2 Traffic & Firewall Rules
-```
-Settings → Security → Traffic & Firewall Rules
-
-Guest Network Isolation:
-├── Rule Type: LAN IN
-├── Name: Block Guest to Internal
-├── Enable: Yes
-├── Rule Applied: Before Predefined Rules
-├── Action: Drop
-├── Source:
-│   ├── Source Type: Network
-│   └── Network: 192.168.30.0/24 (Guest VLAN)
-├── Destination:
-│   ├── Destination Type: Network  
-│   ├── Networks: 192.168.10.0/24, 192.168.20.0/24
-│   └── Port Group: Any
-
-Internet Access Only:
-├── Rule Type: LAN IN  
-├── Name: Allow Guest Internet
-├── Enable: Yes
-├── Action: Accept
-├── Source: 192.168.30.0/24
-└── Destination: Internet (WAN)
-```
-
----
-
-## **ขั้นตอนที่ 7: Testing & Monitoring**
-
-### 7.1 Network Testing
-```bash
-# ทดสอบจาก MikroTik
-/ping 192.168.20.xxx interface=vlan20-office
-# (IP ของ UniFi AP)
-
-# ทดสอบจากอุปกรณ์
-# เชื่อมต่อแต่ละ SSID และทดสอบ:
-
-HomeNet (VLAN 10):
-- ping 192.168.20.1 ✓ (ถึง OfficeNet)
-- ping 192.168.40.1 ✓ (ถึง CCTV)
-- ping 8.8.8.8 ✓ (Internet)
-
-OfficeNet (VLAN 20):  
-- ping 192.168.10.1 ✓ (ถึง HomeNet)
-- ping 192.168.40.1 ✓ (ถึง CCTV)
-- ping 192.168.30.1 ✗ (บล็อก Guest)
-
-GuestWiFi (VLAN 30):
-- ping 192.168.10.1 ✗ (บล็อก HomeNet)
-- ping 192.168.20.1 ✗ (บล็อก OfficeNet)  
-- ping 8.8.8.8 ✓ (Internet เท่านั้น)
-```
-
-### 7.2 UniFi Monitoring
-```
-UniFi Controller Dashboard:
-├── Devices → AP Status, Uptime, Load
-├── Insights → WiFi Experience, Satisfaction  
-├── Statistics → Client Count, Bandwidth Usage
-├── Events → Connection/Disconnection logs
-└── Alerts → AP offline, High interference
-
-Key Metrics:
-├── WiFi Experience: >95% (target)
-├── Satisfaction: >95% (target)
-├── AP Load: <70% (per radio)
-├── Channel Utilization: <50%
-└── Interference: <20%
-```
-
----
-
-## **ขั้นตอนที่ 8: Security Best Practices**
-
-### 8.1 UniFi Security Settings
-```
-Settings → System → Advanced
-
-Secure Management:
-├── SSH: Disable (ใช้ Controller)
-├── SNMP: Enable (ถ้าต้อง monitor)
-├── Analytics & Improvements: Disable
-├── Remote Logging: Enable → Syslog server
-└── NTP Server: Set local NTP
-
-Device Authentication:
-├── Device Password: เปลี่ยนจาก default
-├── SSH Keys: ใช้แทน password
-├── 2FA: Enable สำหรับ Controller
-└── Guest Portal: Enable captive portal
-```
-
-### 8.2 Monitoring & Maintenance
-```
-Regular Tasks:
-├── Update UniFi Controller monthly
-├── Update AP firmware through Controller
-├── Monitor WiFi performance weekly
-├── Check interference และ optimize channels
-├── Review client connection issues
-├── Backup Controller configuration
-└── Test guest network isolation
-
-Performance Optimization:
-├── Adjust transmit power ตาม coverage
-├── Fine-tune channel selection
-├── Monitor bandwidth usage per SSID
-├── Optimize client load balancing
-└── Review and update security settings
-```
-
----
-
-## **สรุป Configuration**
-
-```
-UniFi AP AC LR Configuration:
-├── 3 SSIDs mapped to VLANs 10,20,30
-├── WPA2 security (AC LR ไม่รองรับ WPA3)
-├── Guest isolation enabled
-├── Optimized สำหรับ coverage 30-50m
-└── 2.4GHz + 5GHz dual-band operation
-
-Expected Performance:
-├── 5GHz: up to 867Mbps (3x3 MIMO)
-├── 2.4GHz: up to 450Mbps (3x3 MIMO)  
-├── Concurrent Clients: 50-75 per AP (realistic)
-├── Coverage: 30-50m radius (perfect for your space)
-└── Latency: <5ms local, <15ms internet
-```
-
-**Next Steps:**
-1. Physical installation และ cable connection
-2. MikroTik bridge configuration
-3. UniFi Controller setup และ AP adoption  
-4. SSID creation และ VLAN mapping
-5. Security rules testing
-6. Performance monitoring และ optimization
+# ดู wireless scan
+# /interface wireless scan wlan1
