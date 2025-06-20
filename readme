@@ -1,0 +1,485 @@
+# คู่มือการติดตั้ง MikroTik RB3011 กับ UniFi AP สำหรับ Multi-VLAN Network
+
+## สารบัญ
+1. [ภาพรวมระบบ](#1-ภาพรวมระบบ)
+2. [การเตรียมอุปกรณ์](#2-การเตรียมอุปกรณ์)
+3. [การ Reset อุปกรณ์](#3-การ-reset-อุปกรณ์)
+4. [การติดตั้ง MikroTik RB3011](#4-การติดตั้ง-mikrotik-rb3011)
+5. [การติดตั้ง UniFi AP](#5-การติดตั้ง-unifi-ap)
+6. [การทดสอบและแก้ไขปัญหา](#6-การทดสอบและแก้ไขปัญหา)
+7. [การ Backup และบำรุงรักษา](#7-การ-backup-และบำรุงรักษา)
+
+---
+
+## 1. ภาพรวมระบบ
+
+### 1.1 Network Diagram
+```
+[INTERNET]
+    ↓
+[Router: Reyee RG-EG310GH-E] - Main Gateway & DHCP Server
+    ↓
+[Switch: Reyee RG-NBS3100-24GT4SFP-P] - Core Switch
+    ↓ (LAN Cable)
+[MikroTik RB3011] - VLAN Gateway & Firewall
+    ├── ether1: Uplink (VLAN Trunk)
+    ├── ether2: To Hikvision Switch
+    └── ether3: UniFi AP AC LR (via PoE Injector)
+```
+
+### 1.2 VLAN Structure
+- **VLAN 10**: HomeNet (192.168.10.0/24) - อุปกรณ์ในบ้าน, IoT, Home Assistant
+- **VLAN 20**: OfficeNet (192.168.20.0/24) - อุปกรณ์สำนักงาน
+- **VLAN 30**: GuestWiFi (192.168.30.0/24) - เครือข่ายสำหรับแขก
+- **VLAN 40**: CCTV (192.168.40.0/24) - กล้องวงจรปิด (Isolated)
+
+### 1.3 WiFi SSID Mapping
+- **AIS 5G** → VLAN 10 (HomeNet)
+- **Amazon** → VLAN 20 (OfficeNet)
+- **Free WiFi** → VLAN 30 (GuestWiFi)
+
+---
+
+## 2. การเตรียมอุปกรณ์
+
+### 2.1 อุปกรณ์ที่ต้องใช้
+- MikroTik RB3011UiAS
+- UniFi AP AC LR
+- PoE Injector (802.3af/at)
+- สาย LAN Cat5e/Cat6
+- คอมพิวเตอร์สำหรับ configuration
+
+### 2.2 Software ที่ต้องติดตั้ง
+- **WinBox** - สำหรับจัดการ MikroTik
+- **UniFi Controller** - สำหรับจัดการ UniFi AP
+- **PuTTY** หรือ SSH client (optional)
+
+### 2.3 ข้อมูลที่ต้องเตรียม
+- IP Range แต่ละ VLAN
+- DHCP Server IP (192.168.1.1 - Reyee Router)
+- DNS Servers (8.8.8.8, 8.8.4.4)
+
+---
+
+## 3. การ Reset อุปกรณ์
+
+### 3.1 Reset UniFi AP AC LR
+```bash
+# วิธีที่ 1: Hardware Reset
+1. เสียบไฟ AP ให้เรียบร้อย
+2. กดปุ่ม Reset ค้างไว้ 10 วินาที
+3. LED จะกระพริบและดับ = Reset สำเร็จ
+4. รอ AP boot ใหม่ประมาณ 2-3 นาที (LED สีขาว)
+
+# วิธีที่ 2: SSH Reset (ถ้าเข้าถึงได้)
+ssh ubnt@[AP-IP]
+password: ubnt
+set-default
+reboot
+```
+
+### 3.2 Reset MikroTik RB3011
+```bash
+# วิธีที่ 1: ผ่าน WinBox
+1. เปิด WinBox > เชื่อมต่อด้วย MAC Address
+2. System > Reset Configuration
+3. เลือก "No Default Configuration"
+4. คลิก Reset
+
+# วิธีที่ 2: ผ่าน Terminal
+/system reset-configuration no-defaults=yes
+```
+
+---
+
+## 4. การติดตั้ง MikroTik RB3011
+
+### 4.1 การเชื่อมต่อครั้งแรก
+1. เสียบสาย LAN จาก PC เข้า port ether2-10 (อย่าใช้ ether1)
+2. เปิด WinBox
+3. คลิก Neighbors > เลือก MAC Address ของ RB3011
+4. Login: admin (ไม่มี password)
+
+### 4.2 Basic Configuration
+```bash
+# Set identity
+/system identity set name=RB3011-Office
+
+# Set password
+/user set admin password=YOUR_SECURE_PASSWORD
+
+# Set timezone
+/system clock set time-zone-name=Asia/Bangkok
+
+# Set interface comments
+/interface set ether1 comment="Uplink to Reyee Switch"
+/interface set ether2 comment="To Hikvision Switch"
+/interface set ether3 comment="UniFi AP AC LR"
+```
+
+### 4.3 สร้าง VLAN Interfaces
+```bash
+# สร้าง VLAN บน ether1 (uplink port)
+/interface vlan
+add interface=ether1 name=vlan10-home vlan-id=10
+add interface=ether1 name=vlan20-office vlan-id=20
+add interface=ether1 name=vlan30-guest vlan-id=30
+add interface=ether1 name=vlan40-cctv vlan-id=40
+```
+
+### 4.4 กำหนด IP Address
+```bash
+/ip address
+add address=192.168.10.254/24 interface=vlan10-home
+add address=192.168.20.254/24 interface=vlan20-office
+add address=192.168.30.254/24 interface=vlan30-guest
+add address=192.168.40.254/24 interface=vlan40-cctv
+```
+
+### 4.5 สร้าง Bridge สำหรับ UniFi AP
+```bash
+# สร้าง bridge with VLAN filtering
+/interface bridge
+add name=bridge-unifi vlan-filtering=yes
+
+# เพิ่ม ports เข้า bridge
+/interface bridge port
+add bridge=bridge-unifi interface=ether1 hw=yes
+add bridge=bridge-unifi interface=ether3 hw=yes
+add bridge=bridge-unifi interface=vlan10-home pvid=10
+add bridge=bridge-unifi interface=vlan20-office pvid=20
+add bridge=bridge-unifi interface=vlan30-guest pvid=30
+```
+
+### 4.6 กำหนด VLAN บน Bridge
+```bash
+/interface bridge vlan
+add bridge=bridge-unifi tagged=bridge-unifi,ether1,ether3 vlan-ids=10,20,30
+add bridge=bridge-unifi tagged=bridge-unifi,ether1 vlan-ids=40
+```
+
+### 4.7 Setup DHCP Relay
+```bash
+# Relay DHCP requests ไปยัง Reyee Router
+/ip dhcp-relay
+add dhcp-server=192.168.1.1 disabled=no interface=vlan10-home name=relay-home
+add dhcp-server=192.168.1.1 disabled=no interface=vlan20-office name=relay-office
+add dhcp-server=192.168.1.1 disabled=no interface=vlan30-guest name=relay-guest
+add dhcp-server=192.168.1.1 disabled=no interface=vlan40-cctv name=relay-cctv
+```
+
+### 4.8 Network Settings
+```bash
+# Default route
+/ip route
+add gateway=192.168.1.1
+
+# DNS servers
+/ip dns
+set servers=8.8.8.8,8.8.4.4
+```
+
+### 4.9 Firewall Rules
+```bash
+/ip firewall filter
+# FastTrack for performance
+add chain=forward action=fasttrack-connection connection-state=established,related comment="FastTrack" hw-offload=yes
+add chain=forward action=accept connection-state=established,related comment="Accept established"
+
+# VLAN 10 (Home) - Full access
+add chain=forward src-address=192.168.10.0/24 action=accept
+
+# VLAN 20 (Office) - Internet + CCTV access
+add chain=forward src-address=192.168.20.0/24 dst-address=192.168.40.0/24 action=accept
+add chain=forward src-address=192.168.20.0/24 out-interface=bridge-unifi action=accept
+
+# VLAN 30 (Guest) - Internet only
+add chain=forward src-address=192.168.30.0/24 dst-address=192.168.0.0/16 action=drop
+add chain=forward src-address=192.168.30.0/24 out-interface=bridge-unifi action=accept
+
+# Drop all other traffic
+add chain=forward action=drop
+```
+
+---
+
+## 5. การติดตั้ง UniFi AP
+
+### 5.1 การเตรียม Adopt UniFi AP
+```bash
+# สร้าง temporary port สำหรับ adoption
+/ip address
+add address=192.168.88.1/24 interface=ether4
+
+/ip pool
+add name=pool-temp ranges=192.168.88.10-192.168.88.100
+
+/ip dhcp-server
+add address-pool=pool-temp interface=ether4 name=dhcp-temp
+
+/ip dhcp-server network
+add address=192.168.88.0/24 gateway=192.168.88.1
+```
+
+### 5.2 การ Adopt AP
+1. เสียบ UniFi AP เข้า ether4 ผ่าน PoE Injector
+2. รอ AP boot (ไฟ LED สีขาว กระพริบ)
+3. เปิด UniFi Controller บน PC
+4. AP จะปรากฏในหน้า Devices สถานะ "Pending Adoption"
+5. คลิก "Adopt"
+6. รอ AP provision เสร็จ (Status: Connected)
+
+### 5.3 การตั้งค่า Networks ใน UniFi Controller
+1. ไปที่ **Settings > Networks**
+2. สร้าง Network สำหรับแต่ละ VLAN:
+   - **Home**: VLAN 10, Third-party Gateway
+   - **Office**: VLAN 20, Third-party Gateway
+   - **Guest**: VLAN 30, Third-party Gateway
+   - **CCTV**: VLAN 40, Third-party Gateway
+
+### 5.4 การตั้งค่า WiFi Networks
+1. ไปที่ **Settings > WiFi**
+2. สร้าง WiFi Network:
+
+**AIS 5G** (Home Network)
+- Network: Home (VLAN 10)
+- Security: WPA2
+- Password: [YOUR_PASSWORD]
+
+**Amazon** (Office Network)
+- Network: Office (VLAN 20)
+- Security: WPA2
+- Password: [YOUR_PASSWORD]
+
+**Free WiFi** (Guest Network)
+- Network: Guest (VLAN 30)
+- Security: WPA2
+- Password: [YOUR_PASSWORD]
+- Guest Policy: ✓ Enable
+
+### 5.5 WiFi Optimization Settings
+สำหรับแต่ละ SSID ไปที่ Advanced Settings:
+- **Channel Width**: VHT80 (5GHz) / HT40 (2.4GHz)
+- **Transmit Power**: High
+- **Band Steering**: Disabled
+- **Minimum Data Rate**: Disabled
+- **DTIM Period**: 3 (default)
+
+### 5.6 ย้าย AP ไปใช้งานจริง
+```bash
+# ลบ temporary configuration
+/interface bridge port remove [find interface=ether4]
+/ip address remove [find interface=ether4]
+/ip dhcp-server remove dhcp-temp
+/ip pool remove pool-temp
+```
+
+1. ถอด AP จาก ether4
+2. เสียบเข้า ether3 ผ่าน PoE Injector
+3. AP จะ reconnect อัตโนมัติ
+
+---
+
+## 6. การทดสอบและแก้ไขปัญหา
+
+### 6.1 ตรวจสอบการทำงานของ VLAN
+```bash
+# ดู VLAN configuration
+/interface bridge vlan print
+
+# ดู bridge ports
+/interface bridge port print
+
+# ดู IP addresses
+/ip address print
+
+# ดู DHCP relay status
+/ip dhcp-relay print detail
+```
+
+### 6.2 ตรวจสอบ UniFi AP
+```bash
+# หา MAC address ของ UniFi devices
+/interface bridge host print where mac-address~"FC:EC:DA|F0:9F:C2|18:E8:29|24:A4:3C|04:18:D6"
+
+# ดู ARP entries
+/ip arp print
+
+# Monitor traffic บน ether3
+/interface monitor-traffic ether3
+```
+
+### 6.3 การทดสอบความเร็ว
+```bash
+# Test จาก MikroTik
+/tool speed-test address=speed.cloudflare.com
+
+# Bandwidth test
+/tool bandwidth-test address=8.8.8.8 protocol=tcp direction=both
+```
+
+### 6.4 การแก้ปัญหาที่พบบ่อย
+
+**ปัญหา: Internet ช้า (ต่ำกว่า 200 Mbps)**
+- ตรวจสอบ Hardware acceleration: `/interface bridge port print` (HW ต้องเป็น yes)
+- ตรวจสอบ CPU usage: `/system resource print`
+- ตรวจสอบ FastTrack rules อยู่บนสุด
+
+**ปัญหา: UniFi AP ไม่ online**
+- ตรวจสอบ PoE Injector
+- ตรวจสอบ VLAN trunk configuration
+- Reset AP และ adopt ใหม่
+
+**ปัญหา: ไม่สามารถเชื่อมต่อข้าม VLAN**
+- ตรวจสอบ Firewall rules
+- ตรวจสอบ VLAN tagging บน bridge
+
+### 6.5 Commands สำหรับ Monitoring
+```bash
+# ดู real-time traffic
+/interface monitor-traffic ether1,ether3
+
+# ดู CPU usage per core
+/system resource cpu print
+
+# ดู log
+/log print
+
+# ดู interface statistics
+/interface print stats
+```
+
+---
+
+## 7. การ Backup และบำรุงรักษา
+
+### 7.1 การ Backup Configuration
+```bash
+# Binary backup (รวม username/password)
+/system backup save name=RB3011-backup-$(date)
+
+# Text backup (readable)
+/export file=RB3011-config-$(date)
+
+# Download ผ่าน WinBox
+Files > Download
+```
+
+### 7.2 การ Restore Configuration
+```bash
+# Restore จาก binary backup
+/system backup restore name=backup-filename
+
+# Restore จาก text file
+/import file=config-filename.rsc
+```
+
+### 7.3 การ Update Firmware
+
+**MikroTik RouterOS**
+```bash
+# Check current version
+/system package print
+
+# Check for updates
+/system package update check-for-updates
+
+# Download & install
+/system package update download
+/system reboot
+```
+
+**UniFi AP**
+1. ใน UniFi Controller > Devices
+2. เลือก AP > Settings
+3. คลิก Upgrade หรือตั้ง Auto-upgrade
+
+### 7.4 การบำรุงรักษาประจำ
+- **รายสัปดาห์**: ตรวจสอบ CPU, Memory usage
+- **รายเดือน**: ตรวจสอบ logs, backup configuration
+- **ราย 3 เดือน**: Update firmware (ถ้ามี security patch)
+- **รายปี**: ทำความสะอาดฝุ่น, ตรวจสอบสายและการเชื่อมต่อ
+
+---
+
+## ภาคผนวก: Script สำหรับ Quick Setup
+
+### Complete Setup Script
+```bash
+# === MikroTik RB3011 Multi-VLAN Setup Script ===
+# Run after factory reset
+
+# Basic setup
+/system identity set name=RB3011-Office
+/user set admin password=SecurePassword123!
+/system clock set time-zone-name=Asia/Bangkok
+
+# Interface comments
+/interface set ether1 comment="Uplink to Reyee Switch"
+/interface set ether2 comment="To Hikvision Switch"
+/interface set ether3 comment="UniFi AP AC LR"
+
+# Create VLANs
+/interface vlan
+add interface=ether1 name=vlan10-home vlan-id=10
+add interface=ether1 name=vlan20-office vlan-id=20
+add interface=ether1 name=vlan30-guest vlan-id=30
+add interface=ether1 name=vlan40-cctv vlan-id=40
+
+# IP addresses
+/ip address
+add address=192.168.10.254/24 interface=vlan10-home
+add address=192.168.20.254/24 interface=vlan20-office
+add address=192.168.30.254/24 interface=vlan30-guest
+add address=192.168.40.254/24 interface=vlan40-cctv
+
+# Bridge setup
+/interface bridge add name=bridge-unifi vlan-filtering=yes
+/interface bridge port
+add bridge=bridge-unifi interface=ether1 hw=yes
+add bridge=bridge-unifi interface=ether3 hw=yes
+add bridge=bridge-unifi interface=vlan10-home pvid=10
+add bridge=bridge-unifi interface=vlan20-office pvid=20
+add bridge=bridge-unifi interface=vlan30-guest pvid=30
+
+# VLAN configuration
+/interface bridge vlan
+add bridge=bridge-unifi tagged=bridge-unifi,ether1,ether3 vlan-ids=10,20,30
+add bridge=bridge-unifi tagged=bridge-unifi,ether1 vlan-ids=40
+
+# DHCP relay
+/ip dhcp-relay
+add dhcp-server=192.168.1.1 interface=vlan10-home name=relay-home
+add dhcp-server=192.168.1.1 interface=vlan20-office name=relay-office
+add dhcp-server=192.168.1.1 interface=vlan30-guest name=relay-guest
+add dhcp-server=192.168.1.1 interface=vlan40-cctv name=relay-cctv
+
+# Network settings
+/ip route add gateway=192.168.1.1
+/ip dns set servers=8.8.8.8,8.8.4.4
+
+# Firewall rules
+/ip firewall filter
+add chain=forward action=fasttrack-connection connection-state=established,related comment="FastTrack" hw-offload=yes place-before=0
+add chain=forward action=accept connection-state=established,related comment="Accept established"
+add chain=forward src-address=192.168.10.0/24 action=accept
+add chain=forward src-address=192.168.20.0/24 dst-address=192.168.40.0/24 action=accept
+add chain=forward src-address=192.168.20.0/24 out-interface=bridge-unifi action=accept
+add chain=forward src-address=192.168.30.0/24 dst-address=192.168.0.0/16 action=drop
+add chain=forward src-address=192.168.30.0/24 out-interface=bridge-unifi action=accept
+add chain=forward action=drop
+
+print "Setup completed! Please backup your configuration."
+```
+
+---
+
+## สรุป
+
+การติดตั้งระบบ Multi-VLAN ด้วย MikroTik และ UniFi AP ต้องการความละเอียดในการ configuration แต่เมื่อติดตั้งเสร็จแล้วจะได้ระบบที่:
+- **ปลอดภัย**: แยก network ตามประเภทการใช้งาน
+- **ยืดหยุ่น**: รองรับการขยายในอนาคต
+- **ประสิทธิภาพสูง**: ใช้ hardware acceleration
+- **จัดการง่าย**: ผ่าน WinBox และ UniFi Controller
+
+เก็บคู่มือนี้ไว้อ้างอิงเมื่อต้องการ troubleshoot หรือขยายระบบในอนาคตครับ
